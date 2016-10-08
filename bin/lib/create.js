@@ -26,7 +26,7 @@ var shell = require('shelljs'),
     check_reqs = require('./check_reqs'),
     ROOT    = path.join(__dirname, '..', '..');
 
-var MIN_SDK_VERSION = 14;
+var MIN_SDK_VERSION = 16;
 
 var CordovaError = require('cordova-common').CordovaError;
 var AndroidManifest = require('../templates/cordova/lib/AndroidManifest');
@@ -126,8 +126,8 @@ function writeProjectProperties(projectPath, target_api) {
 }
 
 function prepBuildFiles(projectPath) {
-    var buildModule = require(path.join(path.resolve(projectPath), 'cordova', 'lib', 'build'));
-    buildModule.prepBuildFiles();
+    var buildModule = require(path.resolve(projectPath, 'cordova/lib/builders/builders'));
+    buildModule.getBuilder('gradle').prepBuildFiles();
 }
 
 function copyBuildRules(projectPath) {
@@ -246,7 +246,7 @@ exports.create = function(project_path, config, options, events) {
         events.emit('log', '\tActivity: ' + safe_activity_name);
         events.emit('log', '\tAndroid target: ' + target_api);
 
-        events.emit('verbose', 'Copying template files...');
+        events.emit('verbose', 'Copying android template project to ' + project_path);
 
         setShellFatal(true, function() {
             var project_template_dir = options.customTemplate || path.join(ROOT, 'bin', 'templates', 'project');

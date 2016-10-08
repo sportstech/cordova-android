@@ -1,5 +1,5 @@
 // Platform: android
-// 6b83950ffdd6b84977dfae49d8147ef640b8097f
+// 0030f1d859d2a8360b621b0d48072f3f08eb6925
 /*
  Licensed to the Apache Software Foundation (ASF) under one
  or more contributor license agreements.  See the NOTICE file
@@ -19,7 +19,7 @@
  under the License.
 */
 ;(function() {
-var PLATFORM_VERSION_BUILD_LABEL = '5.1.0-dev';
+var PLATFORM_VERSION_BUILD_LABEL = '5.3.0-dev';
 // file: src/scripts/require.js
 
 /*jshint -W079 */
@@ -330,7 +330,7 @@ module.exports = cordova;
 
 });
 
-// file: /Users/steveng/repo/cordova/cordova-android/cordova-js-src/android/nativeapiprovider.js
+// file: F:/coho/cordova-android/cordova-js-src/android/nativeapiprovider.js
 define("cordova/android/nativeapiprovider", function(require, exports, module) {
 
 /**
@@ -353,7 +353,7 @@ module.exports = {
 
 });
 
-// file: /Users/steveng/repo/cordova/cordova-android/cordova-js-src/android/promptbasednativeapi.js
+// file: F:/coho/cordova-android/cordova-js-src/android/promptbasednativeapi.js
 define("cordova/android/promptbasednativeapi", function(require, exports, module) {
 
 /**
@@ -862,7 +862,7 @@ module.exports = channel;
 
 });
 
-// file: /Users/steveng/repo/cordova/cordova-android/cordova-js-src/exec.js
+// file: F:/coho/cordova-android/cordova-js-src/exec.js
 define("cordova/exec", function(require, exports, module) {
 
 /**
@@ -897,10 +897,11 @@ var cordova = require('cordova'),
         // For the ONLINE_EVENT to be viable, it would need to intercept all event
         // listeners (both through addEventListener and window.ononline) as well
         // as set the navigator property itself.
-        ONLINE_EVENT: 2
+        ONLINE_EVENT: 2,
+        EVAL_BRIDGE: 3
     },
     jsToNativeBridgeMode,  // Set lazily.
-    nativeToJsBridgeMode = nativeToJsModes.ONLINE_EVENT,
+    nativeToJsBridgeMode = nativeToJsModes.EVAL_BRIDGE,
     pollEnabled = false,
     bridgeSecret = -1;
 
@@ -932,7 +933,6 @@ function androidExec(success, fail, service, action, args) {
 
     var callbackId = service + cordova.callbackId++,
         argsJson = JSON.stringify(args);
-
     if (success || fail) {
         cordova.callbacks[callbackId] = {success:success, fail:fail};
     }
@@ -952,6 +952,17 @@ function androidExec(success, fail, service, action, args) {
 }
 
 androidExec.init = function() {
+    //CB-11828
+    //This failsafe checks the version of Android and if it's Jellybean, it switches it to
+    //using the Online Event bridge for communicating from Native to JS
+    //
+    //It's ugly, but it's necessary.
+    var check = navigator.userAgent.toLowerCase().match(/android\s[0-9].[0-9]/);
+    var version_code = check && check[0].match(/4.[0-3].*/);
+    if (version_code != null && nativeToJsBridgeMode == nativeToJsModes.EVAL_BRIDGE) {
+      nativeToJsBridgeMode = nativeToJsModes.ONLINE_EVENT;
+    }
+
     bridgeSecret = +prompt('', 'gap_init:' + nativeToJsBridgeMode);
     channel.onNativeReady.fire();
 };
@@ -1611,8 +1622,11 @@ exports.reset();
 
 });
 
-// file: /Users/steveng/repo/cordova/cordova-android/cordova-js-src/platform.js
+// file: F:/coho/cordova-android/cordova-js-src/platform.js
 define("cordova/platform", function(require, exports, module) {
+
+// The last resume event that was received that had the result of a plugin call.
+var lastResumeEvent = null;
 
 module.exports = {
     id: 'android',
@@ -1653,6 +1667,19 @@ module.exports = {
         bindButtonChannel('volumeup');
         bindButtonChannel('volumedown');
 
+        // The resume event is not "sticky", but it is possible that the event
+        // will contain the result of a plugin call. We need to ensure that the
+        // plugin result is delivered even after the event is fired (CB-10498)
+        var cordovaAddEventListener = document.addEventListener;
+
+        document.addEventListener = function(evt, handler, capture) {
+            cordovaAddEventListener(evt, handler, capture);
+
+            if (evt === 'resume' && lastResumeEvent) {
+                handler(lastResumeEvent);
+            }
+        };
+
         // Let native code know we are all done on the JS side.
         // Native code will then un-hide the WebView.
         channel.onCordovaReady.subscribe(function() {
@@ -1674,11 +1701,29 @@ function onMessageFromNative(msg) {
         case 'searchbutton':
         // App life cycle events
         case 'pause':
-        case 'resume':
         // Volume events
         case 'volumedownbutton':
         case 'volumeupbutton':
             cordova.fireDocumentEvent(action);
+            break;
+        case 'resume':
+            if(arguments.length > 1 && msg.pendingResult) {
+                if(arguments.length === 2) {
+                    msg.pendingResult.result = arguments[1];
+                } else {
+                    // The plugin returned a multipart message
+                    var res = [];
+                    for(var i = 1; i < arguments.length; i++) {
+                        res.push(arguments[i]);
+                    }
+                    msg.pendingResult.result = res;
+                }
+
+                // Save the plugin result so that it can be delivered to the js
+                // even if they miss the initial firing of the event
+                lastResumeEvent = msg;
+            }
+            cordova.fireDocumentEvent(action, msg);
             break;
         default:
             throw new Error('Unknown event action ' + action);
@@ -1687,7 +1732,7 @@ function onMessageFromNative(msg) {
 
 });
 
-// file: /Users/steveng/repo/cordova/cordova-android/cordova-js-src/plugin/android/app.js
+// file: F:/coho/cordova-android/cordova-js-src/plugin/android/app.js
 define("cordova/plugin/android/app", function(require, exports, module) {
 
 var exec = require('cordova/exec');
@@ -2049,7 +2094,7 @@ utils.clone = function(obj) {
 
     retVal = {};
     for(i in obj){
-        if(!(i in retVal) || retVal[i] != obj[i]) {
+        if((!(i in retVal) || retVal[i] != obj[i]) && typeof obj[i] != 'undefined') {
             retVal[i] = utils.clone(obj[i]);
         }
     }
